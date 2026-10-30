@@ -62,9 +62,10 @@ test('planos com zero adiantamentos mantêm o orçamento em 1, 3 e 6 meses', () 
 });
 test('simulação não entra no backup nem modifica adiantamentos já salvos', () => {
   const state=stateOf(credit());
-  const backup=JSON.stringify(exportSnapshot(state));
+  const exportedAt='2026-10-29T00:00:00.000Z';
+  const backup=JSON.stringify(exportSnapshot(state, exportedAt));
   simulateAdvances(state,[move('c1',2,'2027-01')],'2027-01',3);
-  assert.equal(JSON.stringify(exportSnapshot(state)),backup);
+  assert.equal(JSON.stringify(exportSnapshot(state, exportedAt)),backup);
   assert.equal(state.entries[0].advances.length,0);
 });
 test('adiantamento real pré-existente pode ser simulado para um mês ainda anterior', () => {
