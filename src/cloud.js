@@ -31,7 +31,7 @@ const BASE = SUPABASE_URL.replace(/\/$/, '');
 
 /** Persiste token rotativo para login entre visitas. Não é um cofre criptografado. */
 export class ClaraCloud {
-  constructor({ fetcher = globalThis.fetch, store = globalThis.localStorage, url = BASE, key = SUPABASE_PUBLISHABLE_KEY } = {}) {
+  constructor({ fetcher = globalThis.fetch.bind(globalThis), store = globalThis.localStorage, url = BASE, key = SUPABASE_PUBLISHABLE_KEY } = {}) {
     this.fetcher = fetcher;
     this.store = store;
     this.url = url.replace(/\/$/, '');
