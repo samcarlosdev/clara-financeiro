@@ -115,3 +115,12 @@ A simulação é **um overlay efêmero de ocorrências sobre o snapshot financei
 - Nenhuma migração IndexedDB/Supabase nem SQL adicional: o esquema financeiro e formato JSON continuam `schemaVersion = 1`. Atualização PWA muda somente o identificador do cache estático.
 
 **Limites:** o planejamento é previsional, não efetua pagamentos no cartão nem contabiliza juros/descontos por antecipação. Os testes unitários são executáveis sem build; a interface precisa de verificação manual em GitHub Pages/Android porque a política do navegador automatizado neste ambiente bloqueia navegação.
+
+
+## v1.5 — migração de esquema e consistência
+
+O esquema de snapshot passa de `schemaVersion:1` para `schemaVersion:2`. `validateState` migra v1 em memória sem alterar origens/lançamentos. A atualização do Supabase (`supabase/migrate-v1.5.sql`) deve ser executada antes da aplicação nova; um trigger impede downgrade de payload de 2 para 1, protegendo campos que versões antigas desconhecem.
+
+`payees[]` tem identidades imutáveis e é incluído no merge de três vias. Cada `entry` pode ter `payeeId` opcional e `settlements[]` contendo `{index, paidCents, paidAt}`; `index` é o índice original da recorrência/parcela, não o mês movido por antecipação. A quitação é cumulativa dentro de uma ocorrência; pagamentos parciais são representados pelo agregado (não é um ledger imutável de pagamentos). Alterações simultâneas na mesma entry geram conflito. O total de orçamento não é reduzido ao registrar uma quitação.
+
+A exclusão de origem com dependentes é transacional: reclassifica os lançamentos para outra origem válida do mesmo tipo na mesma atualização atômica do snapshot. Remover favorecido desvincula lançamentos antes de apagar o cadastro. A UI nunca deleta uma cobrança para marcar como paga. Todos os estados persistem em IndexedDB e entram em backup/sync.

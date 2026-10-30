@@ -1,5 +1,5 @@
 // Cache do aplicativo, NÃO dos dados financeiros: estes permanecem no IndexedDB.
-const CACHE = 'clara-shell-v5';
+const CACHE = 'clara-shell-v7';
 const ASSETS = ['./', './index.html', './styles.css', './src/app.js', './src/core.js', './src/storage.js', './src/sync.js', './src/cloud.js', './src/cloud-config.js', './assets/icon.svg', './assets/icon-192.png', './assets/icon-512.png', './manifest.webmanifest'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));

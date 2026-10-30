@@ -1,6 +1,7 @@
 /** Regras financeiras puras: valores em centavos, sem arredondamentos binários. */
 export const FORMAT = 'financas-pessoais-local';
-export const VERSION = 1;
+export const VERSION = 2;
+export const MAX_PAYEES = 300;
 export const MAX_SOURCES = 200;
 export const MAX_ENTRIES = 20000;
 export const MAX_PERIOD_MONTHS = 24;
@@ -79,7 +80,8 @@ export function initialState() {
       { id: 'orig-lazer', name: 'Lazer', kind: 'expense' },
       { id: 'orig-outros-desp', name: 'Outras despesas', kind: 'expense' }
     ],
-    entries: []
+    entries: [],
+    payees: []
   };
 }
 
@@ -91,8 +93,18 @@ function textField(value, label, max, allowBlank = false) {
 
 /** Valida e reconstrói cada campo: não aceita objetos arbitrários no armazenamento. */
 export function validateState(value) {
-  if (!plain(value) || value.schemaVersion !== VERSION || !Array.isArray(value.sources) || !Array.isArray(value.entries)) throw new Error('Estrutura de dados incompatível.');
+  if (!plain(value) || ![1, VERSION].includes(value.schemaVersion) || !Array.isArray(value.sources) || !Array.isArray(value.entries)) throw new Error('Estrutura de dados incompatível.');
   if (value.sources.length > MAX_SOURCES || value.entries.length > MAX_ENTRIES) throw new Error('Arquivo excede o limite de registros.');
+  const rawPayees = value.schemaVersion === 1 ? [] : value.payees;
+  if (!Array.isArray(rawPayees) || rawPayees.length > MAX_PAYEES) throw new Error('Lista de favorecidos inválida.');
+  const payeeIds = new Set(), payeeNames = new Set();
+  const payees = rawPayees.map(payee => {
+    if (!plain(payee) || !validId(payee.id) || !['person', 'company', 'institution'].includes(payee.type)) throw new Error('Favorecido inválido.');
+    const name = textField(payee.name, 'Favorecido', 90);
+    if (payeeIds.has(payee.id) || payeeNames.has(name.toLocaleLowerCase('pt-BR'))) throw new Error('Favorecido duplicado.');
+    payeeIds.add(payee.id); payeeNames.add(name.toLocaleLowerCase('pt-BR'));
+    return { id: payee.id, name, type: payee.type, note: textField(payee.note ?? '', 'Observações', 250, true) };
+  });
   const sourceIds = new Set(), entryIds = new Set(), sourceNames = new Set();
   const sources = value.sources.map(source => {
     if (!plain(source) || !validId(source.id) || !['income', 'expense'].includes(source.kind)) throw new Error('Origem com identificador ou tipo inválido.');
@@ -100,7 +112,7 @@ export function validateState(value) {
     const duplicateName = `${source.kind}:${name.toLocaleLowerCase('pt-BR')}`;
     if (sourceIds.has(source.id) || sourceNames.has(duplicateName)) throw new Error('Origem duplicada.');
     sourceIds.add(source.id); sourceNames.add(duplicateName);
-    return { id: source.id, kind: source.kind, name };
+    return { id: source.id, kind: source.kind, name, inactive: source.inactive === true };
   });
   const sourceMap = new Map(sources.map(s => [s.id, s]));
   const entries = value.entries.map(entry => {
@@ -109,6 +121,8 @@ export function validateState(value) {
     if (!['income', 'expense'].includes(entry.kind)) throw new Error('Tipo de lançamento inválido.');
     const source = sourceMap.get(entry.sourceId);
     if (!source || source.kind !== entry.kind) throw new Error('Lançamento contém origem inexistente ou de outro tipo.');
+    const payeeId = entry.payeeId ?? null;
+    if (payeeId !== null && !payeeIds.has(payeeId)) throw new Error('Favorecido inexistente.');
     const date = assertDate(entry.date);
     const description = textField(entry.description, 'Descrição', 160, true);
     if (!Number.isSafeInteger(entry.amountCents) || entry.amountCents < 1 || entry.amountCents > 99999999999) throw new Error('Valor financeiro inválido.');
@@ -150,9 +164,20 @@ export function validateState(value) {
       if (monthDistance(toMonth, scheduledMonth) <= 0) throw new Error('Adiantamento deve antecipar a cobrança para mês anterior.');
       return { index: advance.index, toMonth };
     }).sort((a, b) => a.index - b.index);
-    return { id: entry.id, kind: entry.kind, sourceId: entry.sourceId, description, date, amountCents: entry.amountCents, recurrence, payment, installments: entry.installments, advances: cleanedAdvances };
+    const rawSettlements = entry.settlements ?? [];
+    if (!Array.isArray(rawSettlements) || rawSettlements.length > 240) throw new Error('Pagamentos inválidos.');
+    const usedPayments = new Set();
+    const settlements = rawSettlements.map(item => {
+      if (!plain(item) || !validOccurrenceIndex({ ...entry, recurrence }, item.index) || usedPayments.has(item.index)) throw new Error('Pagamento com ocorrência inválida.');
+      usedPayments.add(item.index);
+      const amount = entry.kind === 'expense' && payment === 'credit' && recurrence.mode === 'none'
+        ? splitInstallments(entry.amountCents, entry.installments)[item.index] : entry.amountCents;
+      if (!Number.isSafeInteger(item.paidCents) || item.paidCents < 1 || item.paidCents > amount) throw new Error('Valor pago excede a cobrança.');
+      return { index: item.index, paidCents: item.paidCents, paidAt: assertDate(item.paidAt) };
+    }).sort((a,b) => a.index-b.index);
+    return { id: entry.id, kind: entry.kind, sourceId: entry.sourceId, payeeId, description, date, amountCents: entry.amountCents, recurrence, payment, installments: entry.installments, advances: cleanedAdvances, settlements };
   });
-  return { schemaVersion: VERSION, sources, entries };
+  return { schemaVersion: VERSION, sources, payees, entries };
 }
 
 /** Uma cobrança tem identidade estável pelo índice ORIGINAL, mesmo após mudar de mês. */
@@ -172,8 +197,45 @@ function occurrenceAtIndex(entry, index, effectiveMonth) {
     entryId: entry.id, entry, month: effectiveMonth,
     originalMonth, occurrenceIndex: index, advanced: effectiveMonth !== originalMonth,
     date: occurrenceDate(entry.date, effectiveMonth), amountCents,
+    paidCents: (entry.settlements || []).find(p => p.index === index)?.paidCents || 0,
     part: installment && entry.installments > 1 ? `${index + 1}/${entry.installments}` : null
   };
+}
+
+/** Referências não podem ficar órfãs após manutenção de cadastros. */
+export function removeSource(state, id, replacementId = null) {
+  const clean = validateState(state);
+  const source = clean.sources.find(s => s.id === id);
+  if (!source) throw new Error('Origem inexistente.');
+  const affected = clean.entries.filter(e => e.sourceId === id);
+  if (affected.length) {
+    const replacement = clean.sources.find(s => s.id === replacementId);
+    if (!replacement || replacement.id === id || replacement.kind !== source.kind || replacement.inactive) throw new Error('Selecione uma origem ativa do mesmo tipo para substituir.');
+  }
+  return validateState({ ...clean, sources: clean.sources.filter(s => s.id !== id), entries: clean.entries.map(e => e.sourceId === id ? { ...e, sourceId:replacementId } : e) });
+}
+export function removePayee(state, id) {
+  const clean = validateState(state);
+  if (!clean.payees.some(p => p.id === id)) throw new Error('Favorecido inexistente.');
+  return validateState({ ...clean, payees: clean.payees.filter(p => p.id !== id), entries: clean.entries.map(e => e.payeeId === id ? {...e,payeeId:null} : e) });
+}
+
+/** Liquidação da ocorrência, parcial ou total. Não movimenta parcelas nem muda o mês orçado. */
+export function settleOccurrence(entry, index, additionalCents, paidAt) {
+  if (entry.kind !== 'expense' || !validOccurrenceIndex(entry, index)) throw new Error('Cobrança inválida para pagamento.');
+  assertDate(paidAt);
+  const scheduled = occurrenceAtIndex(entry, index, addMonths(monthOf(entry.date), index));
+  if (!Number.isSafeInteger(additionalCents) || additionalCents <= 0 || scheduled.paidCents + additionalCents > scheduled.amountCents) throw new Error('Pagamento excede o saldo pendente.');
+  const settlements = (entry.settlements || []).filter(p => p.index !== index);
+  settlements.push({ index, paidCents: scheduled.paidCents + additionalCents, paidAt });
+  return { ...entry, settlements: settlements.sort((a,b) => a.index-b.index) };
+}
+export function undoSettlement(entry, index) {
+  return { ...entry, settlements: (entry.settlements || []).filter(p => p.index !== index) };
+}
+export function payableSummary(state, month) {
+  const items = monthOccurrences(state, month).filter(o => o.entry.kind === 'expense');
+  return { dueCents: items.reduce((s,i)=>s+i.amountCents,0), paidCents:items.reduce((s,i)=>s+i.paidCents,0), pendingCents:items.reduce((s,i)=>s+i.amountCents-i.paidCents,0), pendingCount:items.filter(i=>i.paidCents<i.amountCents).length };
 }
 
 /** Retorna TODAS as cobranças num mês; duas parcelas podem cair no mesmo mês. */
@@ -227,7 +289,7 @@ export function simulateExpense(state, configuration, months) {
     description: '', advances: [], ...configuration
   };
   // Isola a simulação da base persistida e aplica as mesmas regras de validação.
-  const temporary = validateState({ schemaVersion: VERSION, sources: [ephemeralSource], entries: [ephemeralEntry] });
+  const temporary = validateState({ schemaVersion: VERSION, sources: [ephemeralSource], payees: [], entries: [ephemeralEntry] });
   const candidate = temporary.entries[0];
   const from = monthOf(candidate.date);
   return Array.from({ length: months }, (_, i) => {
@@ -340,7 +402,7 @@ export function parseImport(text) {
   if (typeof text !== 'string' || text.length > 10_000_000) throw new Error('Arquivo vazio ou grande demais (limite: 10 MB).');
   let parsed;
   try { parsed = JSON.parse(text); } catch { throw new Error('O arquivo não contém um JSON válido.'); }
-  if (!plain(parsed) || parsed.format !== FORMAT || parsed.formatVersion !== VERSION || typeof parsed.exportedAt !== 'string' || !Number.isFinite(Date.parse(parsed.exportedAt))) {
+  if (!plain(parsed) || parsed.format !== FORMAT || ![1, VERSION].includes(parsed.formatVersion) || typeof parsed.exportedAt !== 'string' || !Number.isFinite(Date.parse(parsed.exportedAt))) {
     throw new Error('Este arquivo não é um backup compatível deste aplicativo.');
   }
   return validateState(parsed.data);

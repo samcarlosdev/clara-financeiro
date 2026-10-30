@@ -178,3 +178,28 @@ controle-financeiro/
 ```
 
 O **salvamento local é obrigatório e imediato** antes de atualizar a tela. O **envio à nuvem é eventual**, falhas deixam os dados locais preservados e o indicador avisa. Ao convergir, dados financeiros, revisão remota e ancestral de comparação são salvos na mesma transação do IndexedDB. O banco remoto é separado por conta com RLS; não é um repositório público do GitHub.
+
+## Clara 1.4 — Recuperação de senha e sessão
+
+Em **Dados, backup e nuvem**, informe o e-mail e clique em **Esqueci minha senha**. O Supabase envia um link de recuperação (sujeito aos limites de envio de e-mail do projeto). Abra o link recebido: o Clara abre um formulário para definir e confirmar uma senha nova, com mínimo de 12 caracteres. Depois, faça login normalmente. Não compartilhe os links de recuperação, que contêm credenciais temporárias.
+
+**Configuração obrigatória:** em Supabase → Authentication → URL Configuration, defina `Site URL` como `https://SEU_USUARIO.github.io/clara-financeiro/` e adicione este mesmo caminho a `Redirect URLs`. O Clara utiliza o fragmento `#access_token=...&type=recovery` do fluxo implícito; caso o projeto use um fluxo de recuperação PKCE (`?code=...`), essa variante exige integração adicional e não deve ser considerada suportada por esta build. O formulário remove imediatamente o token da barra de endereço e guarda-o somente em memória até a atualização da senha. Não é preciso executar outra migração SQL.
+
+**Sessão:** o Clara armazena tokens de acesso/renovação no armazenamento local e tenta renovar o acesso automaticamente. No Supabase, a sessão não possui validade máxima por padrão, mas poderá terminar por logout, troca de senha, expiração/revogação do token de renovação, limpeza do navegador ou limites de sessão configurados pelo administrador. Nunca use aparelhos públicos para manter uma sessão pessoal. O projeto Free do Supabase pode ser pausado por inatividade e tem cotas de recursos; uma pausa interrompe a sincronização até o projeto ser retomado. Os lançamentos salvos localmente permanecem disponíveis no IndexedDB, sujeito à retenção do navegador. Continue exportando backups JSON.
+
+**Importante ao publicar:** se `src/cloud-config.js` já estiver configurado no seu GitHub, preserve seus dois valores públicos ao substituir o projeto pelos arquivos desta versão; o ZIP é distribuído sem credenciais. A versão 1.4 corrige o contexto do `fetch` nativo para evitar erros de rede falsos em certos navegadores.
+
+
+## Clara v1.5 — Favorecidos, quitações e origens independentes
+
+**Antes da atualização:** exporte um backup JSON no Clara v1.4, sincronize os dispositivos e execute `supabase/migrate-v1.5.sql` no **SQL Editor do projeto Supabase**. Em seguida publique todos os arquivos da v1.5 no GitHub Pages. **Preserve o `src/cloud-config.js` preenchido do seu repositório**; o arquivo distribuído vem sem credenciais. Atualize todos os aparelhos para v1.5 antes de editar/sincronizar. A migração SQL permite dados v1 preexistentes e rejeita regravações que retornem um snapshot v2 para v1.
+
+- **Favorecidos:** menu Favorecidos, cadastro independente com nome, tipo e observação; vínculo opcional a receitas e despesas; edição e exclusão segura (vínculos ficam vazios, lançamentos são preservados).
+- **Origens:** menu Origens; crie e renomeie origens sem editar lançamentos; desative origens para impedir novos vínculos sem perder o histórico; para excluir origem em uso, escolha uma origem substituta do mesmo tipo e confirme a reclassificação de todos os lançamentos; origem sem vínculos pode ser excluída diretamente.
+- **Contas a pagar:** em Lançamentos ou no painel Favorecidos, cada cobrança de despesa exibe Pendente, Parcial ou Paga; clique em Pagar para registrar valor e data em uma ocorrência específica; é possível quitar parcialmente, completar posteriormente ou desfazer a quitação da ocorrência. A mesma série pode conter meses pagos e pendentes. As parcelas são individualizadas pelo índice original, mesmo depois de adiantadas.
+- **Importação e migração:** backups v1 e v2 são aceitos e validados. No v1, favorecidos e pagamentos são inicializados vazios. Depois da importação, o backup exportado será v2.
+- **Simulador:** mantém o comportamento de despesa e adiantamentos hipotéticos; nenhum cenário interfere em pagamentos reais. O saldo previsto continua sendo receita prevista menos despesa prevista; pagamentos registrados não diminuem novamente o orçamento.
+
+**Limitações explícitas:** não existe integração bancária nem pagamento real; Pagar registra uma confirmação manual. O aplicativo não oferece um extrato de caixa por data de pagamento. Se precisar ajustar o valor ou a estrutura da série, desfaça antes os pagamentos registrados para não mudar silenciosamente o valor já quitado. As ocorrências se repetem apenas até o limite da visualização e da recorrência configurados.
+
+**Reverter:** o botão Desfazer pagamento apaga a quitação registrada para aquela ocorrência, inclusive um pagamento parcial acumulado. Faça backup antes de operações de manutenção.

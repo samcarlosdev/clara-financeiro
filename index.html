@@ -20,6 +20,7 @@
         <button class="nav-item active" type="button" data-nav="dashboard" aria-current="page"><span class="nav-icon" aria-hidden="true">◫</span> Visão geral</button>
         <button class="nav-item" type="button" data-nav="transactions"><span class="nav-icon" aria-hidden="true">⇄</span> Lançamentos</button>
         <button class="nav-item" type="button" data-nav="simulation"><span class="nav-icon" aria-hidden="true">◇</span> Simulador</button>
+        <button class="nav-item" type="button" data-nav="payees"><span class="nav-icon" aria-hidden="true">♧</span> Favorecidos</button>
         <button class="nav-item" type="button" data-nav="sources"><span class="nav-icon" aria-hidden="true">▦</span> Origens</button>
         <button class="nav-item" type="button" data-nav="settings"><span class="nav-icon" aria-hidden="true">⚙</span> Dados e backup</button>
       </nav>
@@ -54,6 +55,7 @@
             <label class="field"><span>Buscar</span><input id="filter-search" type="search" placeholder="Descrição ou origem" autocomplete="off"></label>
             <label class="field"><span>Tipo</span><select id="filter-kind"><option value="all">Todos</option><option value="income">Receitas</option><option value="expense">Despesas</option><option value="fixed">Despesas fixas</option><option value="variable">Despesas variáveis</option></select></label>
             <label class="field"><span>Origem</span><select id="filter-source"><option value="all">Todas</option></select></label>
+            <label class="field"><span>Favorecido</span><select id="filter-payee"><option value="all">Todos</option></select></label>
             <label class="field"><span>Pagamento</span><select id="filter-payment"><option value="all">Todos</option><option value="cash">Dinheiro</option><option value="pix">Pix</option><option value="credit">Crédito</option><option value="income">Receitas (não aplicável)</option></select></label>
             <label class="field"><span>De</span><input id="filter-from" type="month" min="1900-01" max="2100-12"></label>
             <label class="field"><span>Até</span><input id="filter-to" type="month" min="1900-01" max="2100-12"></label>
@@ -98,6 +100,11 @@
           </div>
         </section>
 
+        <section class="view" id="view-payees" aria-labelledby="payees-heading" hidden>
+          <div class="page-heading page-heading-simple"><div><div class="eyebrow">PARA QUEM VOCÊ PAGA OU RECEBE</div><h1 id="payees-heading">Favorecidos</h1><p>Gerencie pessoas, empresas e instituições associadas às suas movimentações.</p></div><button type="button" id="new-payee" class="button button-primary page-add">+ Novo favorecido</button></div>
+          <section class="panel origin-panel"><div class="panel-heading"><h2>Contas a pagar no mês selecionado</h2></div><div id="payable-month-summary" class="entry-preview"></div><div id="payable-month-list" class="transaction-list"></div></section>
+          <section class="panel origin-panel"><div class="panel-heading"><h2>Seus favorecidos</h2></div><div id="payee-list" class="source-list"></div></section>
+        </section>
         <section class="view" id="view-sources" aria-labelledby="sources-heading" hidden>
           <div class="page-heading page-heading-simple"><div><div class="eyebrow">ORGANIZAÇÃO DO SEU DINHEIRO</div><h1 id="sources-heading">Origens</h1><p>Personalize a classificação dos seus lançamentos.</p></div><button type="button" id="new-source" class="button button-primary page-add">+ Nova origem</button></div>
           <div class="origin-columns"><section class="panel origin-panel"><div class="panel-heading"><div><h2>Origens de receitas</h2><p>De onde vem seu dinheiro</p></div></div><div id="income-sources" class="source-list"></div></section><section class="panel origin-panel"><div class="panel-heading"><div><h2>Origens de despesas</h2><p>Onde você gasta</p></div></div><div id="expense-sources" class="source-list"></div></section></div>
@@ -116,6 +123,7 @@
                 <label class="field"><span>Senha</span><input id="cloud-password" type="password" autocomplete="current-password" minlength="6" placeholder="Sua senha"></label>
               </div>
               <div class="cloud-button-row"><button id="cloud-login" type="button" class="button button-primary">Entrar</button><button id="cloud-register" type="button" class="button button-secondary">Criar conta</button></div>
+              <div class="cloud-button-row"><button id="cloud-forgot" type="button" class="button button-secondary">Esqueci minha senha</button></div>
               <p class="small-note">Se a confirmação de e-mail estiver ativa no Supabase, confirme a mensagem recebida antes do primeiro login.</p>
             </div>
             <div id="cloud-account-panel" hidden>
@@ -135,7 +143,7 @@
         </section>
       </main>
     </div>
-    <nav class="mobile-nav" aria-label="Navegação móvel"><button type="button" data-nav="dashboard" class="mobile-nav-item active"><span aria-hidden="true">◫</span> Início</button><button type="button" data-nav="transactions" class="mobile-nav-item"><span aria-hidden="true">⇄</span> Lançamentos</button><button type="button" data-nav="simulation" class="mobile-nav-item"><span aria-hidden="true">◇</span> Simular</button><button type="button" data-nav="sources" class="mobile-nav-item"><span aria-hidden="true">▦</span> Origens</button><button type="button" data-nav="settings" class="mobile-nav-item"><span aria-hidden="true">⚙</span> Backup</button></nav>
+    <nav class="mobile-nav" aria-label="Navegação móvel"><button type="button" data-nav="dashboard" class="mobile-nav-item active"><span aria-hidden="true">◫</span> Início</button><button type="button" data-nav="transactions" class="mobile-nav-item"><span aria-hidden="true">⇄</span> Lançamentos</button><button type="button" data-nav="simulation" class="mobile-nav-item"><span aria-hidden="true">◇</span> Simular</button><button type="button" data-nav="payees" class="mobile-nav-item"><span aria-hidden="true">♧</span> Pessoas</button><button type="button" data-nav="sources" class="mobile-nav-item"><span aria-hidden="true">▦</span> Origens</button><button type="button" data-nav="settings" class="mobile-nav-item"><span aria-hidden="true">⚙</span> Backup</button></nav>
   </div>
 
   <div id="loading-screen" class="loading-screen" role="status">Preparando suas finanças…</div>
@@ -145,6 +153,7 @@
     <div class="form-grid">
       <label class="field"><span>Tipo de lançamento</span><select id="entry-kind" required><option value="expense">Despesa</option><option value="income">Receita</option></select></label>
       <label class="field"><span>Origem</span><select id="entry-source" required></select></label>
+      <label class="field"><span>Favorecido <em>(opcional)</em></span><select id="entry-payee"></select></label>
       <label class="field field-full"><span>Descrição <em>(opcional)</em></span><input id="entry-description" type="text" maxlength="160" placeholder="Ex.: compra do mês"></label>
       <label class="field"><span id="entry-date-label">Data</span><input id="entry-date" type="date" min="1900-01-01" max="2100-12-31" required></label>
       <label class="field"><span id="entry-amount-label">Valor (R$)</span><input id="entry-amount" type="text" inputmode="decimal" placeholder="0,00" required></label>
@@ -161,8 +170,20 @@
 
   <dialog id="advance-dialog" class="modal modal-small"><form id="advance-form" novalidate><div class="modal-head"><div><div class="eyebrow">ANTECIPAÇÃO</div><h2>Adiantar cobrança</h2></div><button type="button" class="close-button" data-close="advance-dialog" aria-label="Fechar">×</button></div><div class="modal-body"><p id="advance-description" class="advance-description"></p><label class="field"><span>Novo mês da cobrança</span><input type="month" id="advance-to" min="1900-01" max="2100-12" required></label><div id="advance-preview" class="entry-preview" aria-live="polite"></div><div id="advance-error" class="notice warning" role="alert" hidden></div><p class="form-hint">Apenas esta cobrança será movida. Outras parcelas e meses da recorrência permanecem onde estão. Você poderá reverter o adiantamento depois.</p></div><div class="modal-foot"><button class="button button-secondary" type="button" data-close="advance-dialog">Cancelar</button><button type="submit" class="button button-primary">Adiantar cobrança</button></div></form></dialog>
 
-  <dialog id="source-dialog" class="modal modal-small"><form id="source-form" method="dialog" novalidate><div class="modal-head"><h2 id="source-dialog-title">Nova origem</h2><button type="button" class="close-button" data-close="source-dialog" aria-label="Fechar">×</button></div><div class="modal-body"><div id="source-error" class="notice warning" hidden role="alert"></div><label class="field"><span>Tipo de origem</span><select id="source-kind"><option value="expense">Despesa</option><option value="income">Receita</option></select></label><label class="field"><span>Nome da origem</span><input type="text" id="source-name" maxlength="60" placeholder="Ex.: Faculdade" required></label><p class="form-hint">Uma origem é usada para agrupar e filtrar seus lançamentos.</p></div><div class="modal-foot"><button type="button" class="button button-secondary" data-close="source-dialog">Cancelar</button><button type="submit" class="button button-primary">Salvar origem</button></div></form></dialog>
+  <dialog id="source-dialog" class="modal modal-small"><form id="source-form" method="dialog" novalidate><div class="modal-head"><h2 id="source-dialog-title">Nova origem</h2><button type="button" class="close-button" data-close="source-dialog" aria-label="Fechar">×</button></div><div class="modal-body"><div id="source-error" class="notice warning" hidden role="alert"></div><label class="field"><span>Tipo de origem</span><select id="source-kind"><option value="expense">Despesa</option><option value="income">Receita</option></select></label><label class="field"><span>Nome da origem</span><input type="text" id="source-name" maxlength="60" placeholder="Ex.: Faculdade" required></label><label class="field"><span><input type="checkbox" id="source-inactive"> Desativar para novos lançamentos</span></label><p class="form-hint">Origens desativadas permanecem no histórico, mas deixam de aparecer nos novos lançamentos.</p></div><div class="modal-foot"><button type="button" class="button button-secondary" data-close="source-dialog">Cancelar</button><button type="submit" class="button button-primary">Salvar origem</button></div></form></dialog>
 
+  <dialog id="payee-dialog" class="modal modal-small"><form id="payee-form" novalidate><div class="modal-head"><h2 id="payee-title">Favorecido</h2><button type="button" class="close-button" data-close="payee-dialog">×</button></div><div class="modal-body"><div id="payee-error" class="notice warning" role="alert" hidden></div><label class="field"><span>Nome</span><input id="payee-name" maxlength="90" required></label><label class="field"><span>Tipo</span><select id="payee-type"><option value="person">Pessoa</option><option value="company">Empresa</option><option value="institution">Instituição</option></select></label><label class="field"><span>Observações (opcional)</span><textarea id="payee-note" maxlength="250" rows="3"></textarea></label></div><div class="modal-foot"><button type="button" class="button button-secondary" data-close="payee-dialog">Cancelar</button><button class="button button-primary" type="submit">Salvar</button></div></form></dialog>
+  <dialog id="settlement-dialog" class="modal modal-small"><form id="settlement-form" novalidate><div class="modal-head"><h2>Registrar pagamento</h2><button type="button" class="close-button" data-close="settlement-dialog">×</button></div><div class="modal-body"><p id="settlement-description"></p><label class="field"><span>Valor adicional pago (R$)</span><input id="settlement-amount" inputmode="decimal" required></label><label class="field"><span>Data do pagamento</span><input id="settlement-date" type="date" required></label><div id="settlement-error" class="notice warning" hidden role="alert"></div><p class="form-hint">O pagamento será registrado apenas nesta parcela ou mês da recorrência. O orçamento previsto continuará exibindo o valor original.</p></div><div class="modal-foot"><button type="button" class="button button-secondary" data-close="settlement-dialog">Cancelar</button><button type="submit" class="button button-primary">Registrar</button></div></form></dialog>
+  <dialog id="recovery-dialog" class="modal modal-small" aria-labelledby="recovery-title">
+    <div class="modal-head"><h2 id="recovery-title">Redefinir senha do Clara</h2><button type="button" class="close-button" data-close="recovery-dialog" aria-label="Fechar">×</button></div>
+    <form id="recovery-form" class="modal-body">
+      <p>Você abriu um link de recuperação. Escolha uma senha nova com pelo menos 12 caracteres.</p>
+      <label class="field"><span>Nova senha</span><input id="recovery-password" type="password" autocomplete="new-password" minlength="12" required></label>
+      <label class="field"><span>Confirmar nova senha</span><input id="recovery-confirm" type="password" autocomplete="new-password" minlength="12" required></label>
+      <p id="recovery-message" class="small-note" role="status" aria-live="polite"></p>
+      <button id="recovery-submit" type="submit" class="button button-primary">Salvar nova senha</button>
+    </form>
+  </dialog>
   <dialog id="confirm-dialog" class="modal modal-small"><div class="modal-head"><h2 id="confirm-title">Confirmar ação</h2><button type="button" class="close-button" data-close="confirm-dialog" aria-label="Fechar">×</button></div><div class="modal-body"><p id="confirm-message"></p></div><div class="modal-foot"><button id="confirm-cancel" type="button" class="button button-secondary">Cancelar</button><button id="confirm-yes" type="button" class="button button-danger">Confirmar</button></div></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>

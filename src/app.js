@@ -3,7 +3,7 @@ import {
   monthOf, addMonths, monthDistance, occurrenceDate, money, parseMoney,
   splitInstallments, monthOccurrences, periodOccurrences, monthSummary,
   expenseBySource, MAX_SOURCES, advanceOccurrence, reverseAdvance, simulateExpense, simulateAdvances,
-  entryOccurrencesInMonth, assertMonth
+  entryOccurrencesInMonth, assertMonth, MAX_PAYEES, settleOccurrence, undoSettlement, payableSummary, removeSource, removePayee
 } from './core.js';
 import { openStorage, readState, saveState } from './storage.js';
 import { ClaraCloud, cloudConfigured, CloudRevisionError } from './cloud.js';
@@ -31,6 +31,8 @@ let selectedMonth = localToday().slice(0, 7);
 let activeView = 'dashboard';
 let editingEntryId = null;
 let editingSourceId = null;
+let editingPayeeId = null;
+let settlementSelection = null;
 let advanceSelection = null;
 let simulationMode = 'new';
 let simulatedAdvances = []; // Somente memória: nunca passa por commit() ou sincronização.
@@ -45,6 +47,65 @@ let cloudSyncPromise = null;
 let cloudSyncTimer = null;
 let cloudConflict = false;
 let cloudAccountBusy = false;
+let recoveryToken = null;
+let recoveryBusy = false;
+/** Recebe apenas o token implicit de recuperação; elimina o fragmento da barra de endereço. */
+function captureRecoveryLink() {
+  if (!location.hash) return;
+  const params = new URLSearchParams(location.hash.slice(1));
+  const isRecovery = params.get('type') === 'recovery';
+  const authError = params.get('error');
+  if (!isRecovery && !authError) return;
+  const token = isRecovery ? params.get('access_token') : null;
+  history.replaceState(null, '', location.pathname + location.search);
+  if (token) {
+    recoveryToken = token;
+    $('recovery-dialog').showModal();
+  } else if (authError) {
+    notify('O link de recuperação expirou ou é inválido. Solicite outro link.', 'error');
+  } else {
+    notify('Link de recuperação incompleto. Solicite outro link.', 'error');
+  }
+}
+async function requestRecoveryEmail() {
+  if (!cloud || cloudAccountBusy) return;
+  const email = $('cloud-email').value.trim();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    notify('Digite um e-mail válido no campo da conta antes de solicitar a recuperação.', 'error'); return;
+  }
+  cloudAccountBusy = true; renderCloudPanel();
+  try {
+    // Mantém o caminho do projeto GitHub Pages, sem apontar para localhost.
+    await cloud.requestPasswordReset(email, location.origin + location.pathname);
+    notify('Se a conta existir, você receberá um link de recuperação. Verifique a caixa de entrada e o spam.', 'success');
+  } catch (error) {
+    notify(error?.status === 429 ? 'Limite de e-mails atingido no Supabase. Tente novamente após o intervalo indicado no painel.' : errorMessage(error), 'error');
+  } finally { cloudAccountBusy = false; renderCloudPanel(); }
+}
+async function submitRecovery(event) {
+  event.preventDefault();
+  if (!recoveryToken || recoveryBusy || !cloud) return;
+  const pass = $('recovery-password').value;
+  const confirmation = $('recovery-confirm').value;
+  if (pass.length < 12) { $('recovery-message').textContent = 'Use pelo menos 12 caracteres.'; return; }
+  if (pass !== confirmation) { $('recovery-message').textContent = 'As senhas não coincidem.'; return; }
+  recoveryBusy = true;
+  $('recovery-submit').disabled = true;
+  $('recovery-message').textContent = 'Atualizando sua senha…';
+  try {
+    await cloud.updateRecoveredPassword(recoveryToken, pass);
+    recoveryToken = null;
+    $('recovery-form').reset();
+    $('recovery-dialog').close();
+    notify('Senha alterada. Agora entre com o e-mail e a nova senha.', 'success');
+  } catch (error) {
+    $('recovery-message').textContent = errorMessage(error);
+  } finally {
+    recoveryBusy = false;
+    $('recovery-submit').disabled = false;
+  }
+}
+
 
 function notify(message, type = 'success') {
   const toast = $('toast');
@@ -118,6 +179,7 @@ function renderCloudPanel() {
   $('cloud-password').disabled = cloudAccountBusy;
   $('cloud-login').disabled = cloudAccountBusy;
   $('cloud-register').disabled = cloudAccountBusy;
+  $('cloud-forgot').disabled = cloudAccountBusy;
   $('cloud-logout').disabled = cloudAccountBusy;
 }
 
@@ -289,8 +351,9 @@ function cloudAdoption(direction) {
 }
 
 function sourceOf(id) { return state.sources.find(s => s.id === id); }
+function payeeOf(id) { return state.payees.find(p => p.id === id); }
 function setView(view) {
-  if (!['dashboard', 'transactions', 'simulation', 'sources', 'settings'].includes(view)) return;
+  if (!['dashboard', 'transactions', 'simulation', 'sources', 'payees', 'settings'].includes(view)) return;
   activeView = view;
   for (const element of document.querySelectorAll('.view')) element.hidden = element.id !== `view-${view}`;
   for (const item of document.querySelectorAll('[data-nav]')) {
@@ -305,8 +368,10 @@ function setView(view) {
 function renderAll() {
   renderDashboard();
   renderSourceFilters();
+  renderPayeeFilters();
   renderTransactions();
   renderSources();
+  renderPayees();
   renderSimulation();
   renderCloudPanel();
 }
@@ -314,6 +379,7 @@ function renderAll() {
 function renderDashboard() {
   $('current-month').textContent = monthBR(selectedMonth);
   const totals = monthSummary(state, selectedMonth);
+  if (activeView === 'payees') renderPayees();
   $('total-income').textContent = money(totals.income);
   $('total-expense').textContent = money(totals.expense);
   $('total-balance').textContent = money(totals.balance);
@@ -385,8 +451,13 @@ function renderList(container, items) {
     const title = create('div', 'transaction-title', entry.description || origin?.name || 'Lançamento');
     const meta = create('div', 'transaction-meta');
     const classification = income ? (entry.recurrence.mode === 'fixed' ? 'Recorrente' : 'Pontual') : (entry.recurrence.mode === 'fixed' ? 'Fixa' : 'Variável');
-    meta.textContent = `${origin?.name || 'Sem origem'} · ${dateBR(item.date)} · ${income ? 'Receita' : paymentNames[entry.payment]} · ${classification}${item.part ? ` · Parcela ${item.part}` : ''}${item.advanced ? ` · Adiantada de ${monthBR(item.originalMonth)}` : ''}`;
+    meta.textContent = `${origin?.name || 'Sem origem'}${entry.payeeId ? ` · ${payeeOf(entry.payeeId)?.name || 'Favorecido removido'}` : ''} · ${dateBR(item.date)} · ${income ? 'Receita' : paymentNames[entry.payment]} · ${classification}${item.part ? ` · Parcela ${item.part}` : ''}${item.advanced ? ` · Adiantada de ${monthBR(item.originalMonth)}` : ''}`;
     details.append(title, meta);
+    if (!income) {
+      const due = item.amountCents - item.paidCents;
+      const status = create('span', 'payment-state', due === 0 ? '✓ Paga' : item.paidCents ? `Parcial · resta ${money(due)}` : 'Pendente');
+      details.append(status);
+    }
     const right = create('div', 'transaction-right');
     const value = create('strong', `transaction-value ${income ? 'positive' : ''}`, `${income ? '+' : '−'} ${money(item.amountCents)}`);
     const actions = create('div', 'transaction-actions');
@@ -407,6 +478,16 @@ function renderList(container, items) {
       advance.setAttribute('aria-label', `${item.advanced ? 'Reverter adiantamento de' : 'Adiantar'} ${entry.description || origin?.name} ${item.part ? `parcela ${item.part}` : ''} de ${monthBR(item.originalMonth)}`);
       advance.addEventListener('click', () => item.advanced ? confirmReverseAdvance(item) : openAdvance(item));
       actions.append(advance);
+      const paid = create('button', 'mini-action', item.paidCents >= item.amountCents ? 'Paga' : 'Pagar');
+      paid.type = 'button'; paid.disabled = item.paidCents >= item.amountCents;
+      paid.addEventListener('click', () => openSettlement(item));
+      actions.append(paid);
+      if (item.paidCents) {
+        const undo = create('button', 'mini-action remove-action', 'Desfazer pagamento');
+        undo.type = 'button';
+        undo.addEventListener('click', () => confirmDialog({ title: 'Desfazer quitação?', message: 'Remove o valor pago registrado nesta cobrança. O lançamento e as demais parcelas serão preservados.', confirmLabel: 'Desfazer', onConfirm: () => commit(draft => { const index=draft.entries.findIndex(e=>e.id===entry.id); draft.entries[index]=undoSettlement(draft.entries[index],item.occurrenceIndex); }) }));
+        actions.append(undo);
+      }
     }
     actions.append(edit, remove); right.append(value, actions); row.append(symbol, details, right); container.append(row);
   }
@@ -417,6 +498,7 @@ function currentFilters() {
     search: $('filter-search').value.trim().toLocaleLowerCase('pt-BR'),
     kind: $('filter-kind').value,
     source: $('filter-source').value,
+    payee: $('filter-payee').value,
     payment: $('filter-payment').value,
     from: $('filter-from').value,
     to: $('filter-to').value
@@ -428,6 +510,12 @@ function renderSourceFilters() {
   select.replaceChildren(new Option('Todas', 'all'));
   for (const source of [...state.sources].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))) select.add(new Option(`${source.name} (${source.kind === 'income' ? 'receita' : 'despesa'})`, source.id));
   select.value = state.sources.some(s => s.id === previous) ? previous : 'all';
+}
+function renderPayeeFilters() {
+  const select=$('filter-payee'), previous=select.value;
+  select.replaceChildren(new Option('Todos','all'),new Option('Sem favorecido','none'));
+  for(const p of [...state.payees].sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'))) select.add(new Option(p.name,p.id));
+  select.value=previous==='none'||state.payees.some(p=>p.id===previous)?previous:'all';
 }
 function renderTransactions() {
   const filters = currentFilters();
@@ -445,8 +533,9 @@ function renderTransactions() {
     if (filters.kind === 'fixed' && (entry.kind !== 'expense' || entry.recurrence.mode !== 'fixed')) return false;
     if (filters.kind === 'variable' && (entry.kind !== 'expense' || entry.recurrence.mode !== 'none')) return false;
     if (filters.source !== 'all' && entry.sourceId !== filters.source) return false;
+    if (filters.payee !== 'all' && (filters.payee === 'none' ? Boolean(entry.payeeId) : entry.payeeId !== filters.payee)) return false;
     if (filters.payment !== 'all' && (filters.payment === 'income' ? entry.kind !== 'income' : entry.payment !== filters.payment)) return false;
-    const haystack = `${entry.description} ${sourceOf(entry.sourceId)?.name || ''}`.toLocaleLowerCase('pt-BR');
+    const haystack = `${entry.description} ${sourceOf(entry.sourceId)?.name || ''} ${payeeOf(entry.payeeId)?.name || ''}`.toLocaleLowerCase('pt-BR');
     return haystack.includes(filters.search);
   });
   $('filter-result-count').textContent = `${items.length} ocorrência${items.length === 1 ? '' : 's'} encontrada${items.length === 1 ? '' : 's'}`;
@@ -468,8 +557,17 @@ function renderSources() {
       const edit = create('button', 'mini-action', 'Editar'); edit.type = 'button'; edit.addEventListener('click', () => openSource(source));
       const remove = create('button', 'mini-action remove-action', 'Excluir'); remove.type = 'button';
       remove.addEventListener('click', () => {
-        if (count) { notify('Esta origem está em uso. Mude a origem dos lançamentos antes de excluí-la.', 'error'); return; }
-        confirmDialog({ title: 'Excluir origem?', message: `Deseja excluir a origem "${source.name}"?`, confirmLabel: 'Excluir origem', onConfirm: () => commit(draft => { draft.sources = draft.sources.filter(s => s.id !== source.id); }) });
+        if (count) {
+          const alternatives = state.sources.filter(s => s.kind === source.kind && s.id !== source.id && !s.inactive);
+          if (!alternatives.length) { notify('Cadastre uma origem substituta ativa antes de excluir.', 'error'); return; }
+          const choice = prompt(`Origem em uso (${count} lançamentos). Digite o NÚMERO da origem de destino:\n${alternatives.map((s,i)=>`${i+1}. ${s.name}`).join('\n')}\nCancelar mantém todos os dados.`);
+          if (choice === null) return;
+          const index = Number(choice)-1;
+          if (!Number.isInteger(index) || !alternatives[index]) { notify('Seleção inválida. Nenhum dado foi alterado.', 'error'); return; }
+          confirmDialog({ title: 'Substituir e excluir origem?', message: `Os ${count} lançamentos de ${source.name} serão vinculados a ${alternatives[index].name}. Confirma?`, confirmLabel: 'Reclassificar e excluir', onConfirm: () => commit(draft => removeSource(draft,source.id,alternatives[index].id)) });
+          return;
+        }
+        confirmDialog({ title: 'Excluir origem?', message: `Deseja excluir a origem "${source.name}"?`, confirmLabel: 'Excluir origem', onConfirm: () => commit(draft => removeSource(draft,source.id)) });
       });
       actions.append(edit, remove); item.append(info, actions); root.append(item);
     }
@@ -485,7 +583,7 @@ function makeId() {
 function fillSourceSelect(kind, selected = '') {
   const select = $('entry-source');
   select.replaceChildren();
-  const sources = state.sources.filter(source => source.kind === kind).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  const sources = state.sources.filter(source => source.kind === kind && (!source.inactive || source.id === selected)).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
   for (const source of sources) select.add(new Option(source.name, source.id));
   if (sources.some(s => s.id === selected)) select.value = selected;
   if (!sources.length) select.add(new Option('Cadastre uma origem primeiro', ''));
@@ -498,6 +596,7 @@ function openEntry(entry = null) {
   $('edit-hint').hidden = !entry;
   $('entry-kind').value = entry?.kind || 'expense';
   fillSourceSelect($('entry-kind').value, entry?.sourceId);
+  fillPayeeSelect(entry?.payeeId);
   $('entry-description').value = entry?.description || '';
   $('entry-date').value = entry?.date || occurrenceDate(localToday(), selectedMonth);
   $('entry-recurrence').value = entry?.recurrence.mode || 'none';
@@ -561,7 +660,7 @@ async function submitEntry(event) {
     if (!Number.isSafeInteger(amountCents) || amountCents > 99999999999) throw new Error('O valor total excede o limite aceito.');
     const months = fixed && $('entry-term').value === 'limited' ? Number($('entry-months').value) : null;
     const entry = {
-      id: editingEntryId || makeId(), kind, sourceId, description: $('entry-description').value.trim(),
+      id: editingEntryId || makeId(), kind, sourceId, payeeId: $('entry-payee').value || null, description: $('entry-description').value.trim(),
       date: $('entry-date').value, amountCents,
       recurrence: { mode: recurrenceMode, months }, payment, installments: installmentCount
     };
@@ -569,12 +668,14 @@ async function submitEntry(event) {
       const index = draft.entries.findIndex(e => e.id === entry.id);
       if (index >= 0) {
         const previous = draft.entries[index];
-        if ((previous.advances || []).length) {
+        if ((previous.advances || []).length || (previous.settlements || []).length) {
           const originalSchedule = JSON.stringify([previous.date, previous.kind, previous.recurrence, previous.payment, previous.installments]);
           const revisedSchedule = JSON.stringify([entry.date, entry.kind, entry.recurrence, entry.payment, entry.installments]);
           if (originalSchedule !== revisedSchedule) throw new Error('Existem cobranças adiantadas. Reverta-as antes de alterar data, tipo, recorrência, pagamento ou número de parcelas.');
         }
         entry.advances = previous.advances || [];
+        entry.settlements = previous.settlements || [];
+        if (entry.amountCents !== previous.amountCents && entry.settlements.length) throw new Error('Reverta os pagamentos antes de alterar o valor da série.');
         draft.entries[index] = entry;
       } else draft.entries.push(entry);
     });
@@ -903,6 +1004,54 @@ function renderSimulation() {
   }
 }
 
+function fillPayeeSelect(selected = null) {
+  const select = $('entry-payee'); select.replaceChildren(new Option('Sem favorecido', ''));
+  for (const payee of [...state.payees].sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'))) select.add(new Option(payee.name,payee.id));
+  select.value = selected || '';
+}
+function renderPayees() {
+  const totals = payableSummary(state, selectedMonth);
+  $('payable-month-summary').textContent = `${monthBR(selectedMonth)} · ${money(totals.paidCents)} pago · ${money(totals.pendingCents)} pendente · ${totals.pendingCount} cobrança(s) pendente(s)`;
+  renderList($('payable-month-list'), monthOccurrences(state, selectedMonth).filter(item => item.entry.kind === 'expense' && item.paidCents < item.amountCents));
+  const root = $('payee-list'); root.replaceChildren();
+  if (!state.payees.length) { root.append(create('p','empty-chart','Nenhum favorecido cadastrado.')); return; }
+  for (const payee of [...state.payees].sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'))) {
+    const entries=state.entries.filter(e=>e.payeeId===payee.id);
+    const row=create('div','source-row'), info=create('div','source-info'), actions=create('div','source-actions');
+    info.append(create('strong','',payee.name),create('span','',`${payee.type==='person'?'Pessoa':payee.type==='company'?'Empresa':'Instituição'} · ${entries.length} lançamento(s) · ${payee.note || 'Sem observações'}`));
+    const edit=create('button','mini-action','Editar');edit.type='button';edit.addEventListener('click',()=>openPayee(payee));
+    const del=create('button','mini-action remove-action','Excluir');del.type='button';del.addEventListener('click',()=>{
+      confirmDialog({title:'Excluir favorecido?',message:`${entries.length ? `Os ${entries.length} lançamentos continuarão existindo, mas ficarão sem favorecido.`:'Não há lançamentos vinculados.'} Confirmar exclusão de ${payee.name}?`,confirmLabel:'Excluir favorecido',onConfirm:()=>commit(draft=>removePayee(draft,payee.id))});
+    }); actions.append(edit,del);row.append(info,actions);root.append(row);
+  }
+}
+function openPayee(payee=null) {
+  editingPayeeId=payee?.id || null; $('payee-form').reset(); $('payee-error').hidden=true;
+  $('payee-title').textContent=payee?'Editar favorecido':'Novo favorecido';
+  $('payee-name').value=payee?.name||'';$('payee-type').value=payee?.type||'company';$('payee-note').value=payee?.note||'';
+  $('payee-dialog').showModal();$('payee-name').focus();
+}
+async function submitPayee(event) {
+  event.preventDefault();$('payee-error').hidden=true;
+  const payee={id:editingPayeeId||makeId(),name:$('payee-name').value.trim(),type:$('payee-type').value,note:$('payee-note').value.trim()};
+  try {if(!editingPayeeId && state.payees.length>=MAX_PAYEES)throw Error('Limite de favorecidos atingido.');
+    await commit(draft=>{const i=draft.payees.findIndex(p=>p.id===payee.id);if(i<0)draft.payees.push(payee);else draft.payees[i]=payee;});
+    $('payee-dialog').close();notify('Favorecido salvo.');
+  } catch(error){showFormError('payee-error',errorMessage(error));}
+}
+function openSettlement(item) {
+  settlementSelection={entryId:item.entryId,index:item.occurrenceIndex};
+  $('settlement-form').reset();$('settlement-error').hidden=true;
+  $('settlement-description').textContent=`${item.entry.description || sourceOf(item.entry.sourceId)?.name || 'Despesa'} · ${monthBR(item.month)} · Restante ${money(item.amountCents-item.paidCents)}`;
+  $('settlement-amount').value=((item.amountCents-item.paidCents)/100).toFixed(2).replace('.',',');
+  $('settlement-date').value=localToday();$('settlement-dialog').showModal();
+}
+async function submitSettlement(event) {
+  event.preventDefault();$('settlement-error').hidden=true;
+  try {const cents=parseMoney($('settlement-amount').value);await commit(draft=>{const i=draft.entries.findIndex(e=>e.id===settlementSelection.entryId);if(i<0)throw Error('Lançamento removido.');draft.entries[i]=settleOccurrence(draft.entries[i],settlementSelection.index,cents,$('settlement-date').value);});
+    $('settlement-dialog').close();notify('Pagamento registrado.');
+  } catch(error){showFormError('settlement-error',errorMessage(error));}
+}
 function openSource(source = null) {
   editingSourceId = source?.id || null;
   $('source-form').reset();
@@ -911,13 +1060,14 @@ function openSource(source = null) {
   $('source-kind').value = source?.kind || 'expense';
   $('source-kind').disabled = Boolean(source);
   $('source-name').value = source?.name || '';
+  $('source-inactive').checked = source?.inactive || false;
   $('source-dialog').showModal();
   $('source-name').focus();
 }
 async function submitSource(event) {
   event.preventDefault();
   $('source-error').hidden = true;
-  const source = { id: editingSourceId || makeId(), name: $('source-name').value.trim(), kind: $('source-kind').value };
+  const source = { id: editingSourceId || makeId(), name: $('source-name').value.trim(), kind: $('source-kind').value, inactive: $('source-inactive').checked };
   try {
     if (!editingSourceId && state.sources.length >= MAX_SOURCES) throw new Error('Número máximo de origens atingido.');
     await commit(draft => {
@@ -990,7 +1140,7 @@ function connectEvents() {
   $('dashboard-simulate').addEventListener('click', () => setView('simulation'));
   $('previous-month').addEventListener('click', () => switchMonth(-1));
   $('next-month').addEventListener('click', () => switchMonth(1));
-  for (const id of ['filter-search', 'filter-kind', 'filter-source', 'filter-payment', 'filter-from', 'filter-to']) {
+  for (const id of ['filter-search', 'filter-kind', 'filter-source', 'filter-payee', 'filter-payment', 'filter-from', 'filter-to']) {
     $(id).addEventListener(id === 'filter-search' ? 'input' : 'change', renderTransactions);
   }
   $('filter-reset').addEventListener('click', resetFilters);
@@ -1013,6 +1163,9 @@ function connectEvents() {
     $(id).addEventListener('change', updateEntryFields);
   }
   $('new-source').addEventListener('click', () => openSource());
+  $('new-payee').addEventListener('click', () => openPayee());
+  $('payee-form').addEventListener('submit', submitPayee);
+  $('settlement-form').addEventListener('submit', submitSettlement);
   $('source-form').addEventListener('submit', submitSource);
   document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => $(button.dataset.close).close()));
   $('confirm-cancel').addEventListener('click', () => $('confirm-dialog').close());
@@ -1021,6 +1174,8 @@ function connectEvents() {
   $('import-file').addEventListener('change', importBackup);
   $('cloud-login').addEventListener('click', () => cloudAccountAction('login'));
   $('cloud-register').addEventListener('click', () => cloudAccountAction('register'));
+  $('cloud-forgot').addEventListener('click', requestRecoveryEmail);
+  $('recovery-form').addEventListener('submit', submitRecovery);
   $('cloud-pull').addEventListener('click', () => cloudAdoption('download'));
   $('cloud-upload').addEventListener('click', () => cloudAdoption('upload'));
   $('cloud-override').addEventListener('click', () => cloudAdoption('upload'));
@@ -1053,6 +1208,7 @@ function resetFilters() {
   $('filter-search').value = '';
   $('filter-kind').value = 'all';
   $('filter-source').value = 'all';
+  $('filter-payee').value = 'all';
   $('filter-payment').value = 'all';
   $('filter-from').value = selectedMonth;
   $('filter-to').value = selectedMonth;
@@ -1088,6 +1244,7 @@ async function boot() {
     setView('dashboard');
     $('app-shell').hidden = false;
     $('loading-screen').hidden = true;
+    captureRecoveryLink();
     updatePersistence();
     if (cloud) {
       try { if (cloud.restore()) beginCloudSession(); }

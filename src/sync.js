@@ -20,7 +20,7 @@ function changedCollection(base, other, key) {
 }
 export function sameFinancialState(a, b) {
   const x = validateState(a), y = validateState(b);
-  return !changedCollection(x, y, 'sources') && !changedCollection(x, y, 'entries');
+  return !changedCollection(x, y, 'sources') && !changedCollection(x, y, 'entries') && !changedCollection(x, y, 'payees');
 }
 export function isDefaultState(value) { return sameFinancialState(value, initialState()); }
 
@@ -49,7 +49,8 @@ export function mergeFinancialStates(baseInput, localInput, remoteInput) {
   const candidate = {
     schemaVersion: base.schemaVersion,
     sources: mergeCollection(base, local, remote, 'sources', conflicts),
-    entries: mergeCollection(base, local, remote, 'entries', conflicts)
+    entries: mergeCollection(base, local, remote, 'entries', conflicts),
+    payees: mergeCollection(base, local, remote, 'payees', conflicts)
   };
   if (conflicts.length) throw new SyncConflict(`Há ${conflicts.length} registro(s) alterado(s) nos dois dispositivos: ${conflicts.slice(0, 5).join(', ')}. Exporte o JSON antes de resolver.`, conflicts);
   try { return validateState(candidate); }
