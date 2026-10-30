@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111b34">
+  <meta name="description" content="Controle financeiro pessoal com uso offline e sincronização opcional entre dispositivos.">
+  <title>Clara — Meu financeiro</title>
+  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./src/app.js"></script>
+</head>
+<body>
+  <div class="app-shell" id="app-shell" hidden>
+    <aside class="sidebar" aria-label="Navegação principal">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">◈</span><span>clara<span class="brand-dot">.</span><small>meu financeiro</small></span></div>
+      <div class="sidebar-label">MENU PRINCIPAL</div>
+      <nav class="nav-list" aria-label="Seções">
+        <button class="nav-item active" type="button" data-nav="dashboard" aria-current="page"><span class="nav-icon" aria-hidden="true">◫</span> Visão geral</button>
+        <button class="nav-item" type="button" data-nav="transactions"><span class="nav-icon" aria-hidden="true">⇄</span> Lançamentos</button>
+        <button class="nav-item" type="button" data-nav="simulation"><span class="nav-icon" aria-hidden="true">◇</span> Simulador</button>
+        <button class="nav-item" type="button" data-nav="sources"><span class="nav-icon" aria-hidden="true">▦</span> Origens</button>
+        <button class="nav-item" type="button" data-nav="settings"><span class="nav-icon" aria-hidden="true">⚙</span> Dados e backup</button>
+      </nav>
+      <div class="sidebar-bottom"><div class="privacy-badge"><span class="privacy-dot"></span> Seus dados, no seu dispositivo</div><p>Conta opcional. Sem mensalidade.<br>Você tem o controle.</p></div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <div class="topbar-brand">clara<span class="brand-dot">.</span></div>
+        <div class="topbar-right"><button id="cloud-top-status" class="cloud-top-status" type="button" title="Ver status da sincronização">● Somente local</button><button id="top-new" class="button button-primary top-add" type="button">+ Novo lançamento</button></div>
+      </header>
+      <main class="content">
+        <div id="storage-warning" class="notice warning" role="alert" hidden></div>
+        <section class="view" id="view-dashboard" aria-labelledby="dashboard-heading">
+          <div class="page-heading"><div><div class="eyebrow">BEM-VINDO AO SEU ESPAÇO</div><h1 id="dashboard-heading">Seu dinheiro, mais claro.</h1><p>Veja o que entrou, saiu e está previsto para o mês.</p></div><div class="month-navigation"><button type="button" id="previous-month" class="icon-button" aria-label="Mês anterior">‹</button><span id="current-month" aria-live="polite"></span><button type="button" id="next-month" class="icon-button" aria-label="Mês seguinte">›</button></div><button type="button" class="button button-secondary" id="dashboard-simulate">Simular despesa</button></div>
+          <div class="summary-grid">
+            <article class="summary-card"><div class="card-top"><span>Receitas</span><span class="card-icon income-icon" aria-hidden="true">↗</span></div><strong id="total-income" class="summary-value">R$ 0,00</strong><span class="card-caption">Entradas previstas no mês</span></article>
+            <article class="summary-card"><div class="card-top"><span>Despesas</span><span class="card-icon expense-icon" aria-hidden="true">↘</span></div><strong id="total-expense" class="summary-value">R$ 0,00</strong><span class="card-caption">Saídas previstas no mês</span></article>
+            <article class="summary-card summary-balance"><div class="card-top"><span>Saldo do mês</span><span class="card-icon balance-icon" aria-hidden="true">◈</span></div><strong id="total-balance" class="summary-value">R$ 0,00</strong><span class="card-caption">Receitas menos despesas</span></article>
+            <article class="summary-card"><div class="card-top"><span>Compromissos fixos</span><span class="card-icon fixed-icon" aria-hidden="true">↻</span></div><strong id="total-fixed" class="summary-value">R$ 0,00</strong><span id="fixed-caption" class="card-caption">0% das despesas do mês</span></article>
+          </div>
+          <div class="overview-grid">
+            <section class="panel comparison-panel" aria-labelledby="comparison-heading"><div class="panel-heading"><div><h2 id="comparison-heading">Seu fluxo financeiro</h2><p>Comparativo dos últimos seis meses</p></div><div class="legend"><span><i class="legend-dot legend-income"></i> Receitas</span><span><i class="legend-dot legend-expense"></i> Despesas</span></div></div><div id="comparison-chart" class="comparison-chart" role="img" aria-label="Comparativo mensal de receitas e despesas"></div></section>
+            <section class="panel origins-panel" aria-labelledby="origins-heading"><div class="panel-heading"><div><h2 id="origins-heading">Para onde foi?</h2><p>Despesas por origem no mês</p></div></div><div id="origins-chart" class="origins-chart"></div><div class="split-footer"><span>Variáveis: <b id="variable-split">R$ 0,00</b></span><span>Fixas: <b id="fixed-split">R$ 0,00</b></span></div></section>
+          </div>
+          <section class="panel recent-panel" aria-labelledby="recent-heading"><div class="panel-heading"><div><h2 id="recent-heading">Movimentações deste mês</h2><p>Inclui parcelas e lançamentos recorrentes</p></div><button type="button" id="view-all" class="text-link">Ver todos <span aria-hidden="true">→</span></button></div><div id="recent-list" class="transaction-list"></div></section>
+        </section>
+
+        <section class="view" id="view-transactions" aria-labelledby="transactions-heading" hidden>
+          <div class="page-heading page-heading-simple"><div><div class="eyebrow">CONTROLE DE MOVIMENTAÇÕES</div><h1 id="transactions-heading">Lançamentos</h1><p>Consulte e gerencie despesas, receitas e parcelas.</p></div><button type="button" class="button button-primary page-add" data-add-entry>+ Novo lançamento</button></div>
+          <div class="panel filters-panel"><div class="filter-grid">
+            <label class="field"><span>Buscar</span><input id="filter-search" type="search" placeholder="Descrição ou origem" autocomplete="off"></label>
+            <label class="field"><span>Tipo</span><select id="filter-kind"><option value="all">Todos</option><option value="income">Receitas</option><option value="expense">Despesas</option><option value="fixed">Despesas fixas</option><option value="variable">Despesas variáveis</option></select></label>
+            <label class="field"><span>Origem</span><select id="filter-source"><option value="all">Todas</option></select></label>
+            <label class="field"><span>Pagamento</span><select id="filter-payment"><option value="all">Todos</option><option value="cash">Dinheiro</option><option value="pix">Pix</option><option value="credit">Crédito</option><option value="income">Receitas (não aplicável)</option></select></label>
+            <label class="field"><span>De</span><input id="filter-from" type="month" min="1900-01" max="2100-12"></label>
+            <label class="field"><span>Até</span><input id="filter-to" type="month" min="1900-01" max="2100-12"></label>
+          </div><div class="filters-bottom"><span id="filter-result-count" aria-live="polite"></span><button type="button" id="filter-reset" class="text-link">Limpar filtros</button></div></div>
+          <section class="panel entries-panel" aria-label="Resultados"><div id="all-transactions" class="transaction-list"></div></section>
+        </section>
+
+        <section class="view" id="view-simulation" aria-labelledby="simulation-heading" hidden>
+          <div class="page-heading page-heading-simple"><div><div class="eyebrow">PLANEJAMENTO SEM COMPROMISSO</div><h1 id="simulation-heading">Simulador</h1><p>Simule novas despesas ou antecipe cobranças já cadastradas. Nada é salvo.</p></div></div>
+          <div class="simulation-layout">
+            <section class="panel simulation-config" aria-labelledby="sim-config-title">
+              <div class="panel-heading"><div><h2 id="sim-config-title">Simulação de despesas</h2><p id="sim-config-description">Compare cenários sem alterar lançamentos</p></div><span class="simulation-tag">Somente teste</span></div>
+              <div class="simulation-mode" role="group" aria-label="Tipo de simulação">
+                <button type="button" id="sim-mode-new" class="sim-mode-button active" aria-pressed="true" data-sim-mode="new">Nova despesa</button>
+                <button type="button" id="sim-mode-advance" class="sim-mode-button" aria-pressed="false" data-sim-mode="advance">Adiantar lançamento</button>
+              </div>
+              <div class="sim-common-fields">
+                <label class="field"><span>Mês inicial da análise</span><input type="month" id="sim-start" min="1900-01" max="2100-12" required></label>
+                <label class="field"><span>Período para visualizar</span><select id="sim-horizon"><option value="1">Próximo 1 mês</option><option value="3" selected>Próximos 3 meses</option><option value="6">Próximos 6 meses</option></select></label>
+              </div>
+              <form id="simulation-form" novalidate><div class="form-grid">
+                <label class="field"><span>Valor (R$)</span><input type="text" id="sim-amount" inputmode="decimal" placeholder="Ex.: 350,00" required></label>
+                <label class="field"><span>Tipo de despesa</span><select id="sim-recurrence"><option value="none">Variável</option><option value="fixed">Fixa mensal</option></select></label>
+                <label class="field" id="sim-term-wrap"><span>Duração da fixa</span><select id="sim-term"><option value="indefinite">Indeterminada</option><option value="limited">Meses definidos</option></select></label>
+                <label class="field" id="sim-months-wrap"><span>Quantidade de meses</span><input id="sim-months" type="number" min="2" max="240" value="12"></label>
+                <label class="field"><span>Pagamento</span><select id="sim-payment"><option value="pix">Pix</option><option value="cash">Dinheiro</option><option value="credit">Cartão de crédito</option></select></label>
+                <label class="field" id="sim-installments-wrap"><span>Parcelas</span><input type="number" id="sim-installments" min="1" max="120" value="1"></label>
+                <label class="field" id="sim-value-mode-wrap"><span>Valor informado</span><select id="sim-value-mode"><option value="total">Compra inteira</option><option value="each">Cada parcela</option></select></label>
+              </div><p class="form-hint">O mês da análise também é a primeira competência da despesa hipotética. Nenhum lançamento é criado.</p><button type="submit" class="button button-primary simulation-submit">Calcular simulação</button></form>
+              <div id="sim-advance-area" hidden>
+                <form id="sim-advance-form" novalidate><div class="form-grid">
+                  <label class="field field-full"><span>Despesa já cadastrada</span><select id="sim-advance-entry" required><option value="">Selecione uma despesa</option></select></label>
+                  <label class="field field-full"><span>Cobrança ou parcela a antecipar</span><select id="sim-advance-occurrence" required><option value="">Escolha uma cobrança</option></select></label>
+                  <label class="field field-full"><span>Adiantar para o mês</span><input type="month" id="sim-advance-to" min="1900-01" max="2100-12" required></label>
+                </div><p id="sim-advance-help" class="form-hint" aria-live="polite">Escolha uma despesa e uma cobrança futura, depois o mês de destino. Você pode combinar vários adiantamentos.</p><button type="submit" id="sim-advance-add" class="button button-primary simulation-submit">Adicionar ao cenário</button></form>
+                <div class="sim-plan-head"><h3>Adiantamentos hipotéticos</h3><button id="sim-advance-clear" type="button" class="text-link" hidden>Limpar todos</button></div>
+                <div id="sim-advance-plans" class="sim-plan-list" aria-live="polite"><p class="sim-plan-empty">Nenhum adiantamento simulado ainda.</p></div>
+                <p class="form-hint">As cobranças elegíveis são buscadas nos 24 meses a partir do início da análise. O destino precisa estar dentro dos 1, 3 ou 6 meses exibidos.</p>
+              </div>
+            </section>
+            <section class="panel simulation-output" aria-labelledby="simulation-result-heading"><div class="panel-heading"><div><h2 id="simulation-result-heading">Impacto no orçamento</h2><p id="simulation-result-description">Comparativo com seus dados reais</p></div></div><div id="sim-feedback" class="simulation-feedback">Preencha o valor para comparar os meses.</div><div id="sim-results" aria-live="polite"></div></section>
+          </div>
+        </section>
+
+        <section class="view" id="view-sources" aria-labelledby="sources-heading" hidden>
+          <div class="page-heading page-heading-simple"><div><div class="eyebrow">ORGANIZAÇÃO DO SEU DINHEIRO</div><h1 id="sources-heading">Origens</h1><p>Personalize a classificação dos seus lançamentos.</p></div><button type="button" id="new-source" class="button button-primary page-add">+ Nova origem</button></div>
+          <div class="origin-columns"><section class="panel origin-panel"><div class="panel-heading"><div><h2>Origens de receitas</h2><p>De onde vem seu dinheiro</p></div></div><div id="income-sources" class="source-list"></div></section><section class="panel origin-panel"><div class="panel-heading"><div><h2>Origens de despesas</h2><p>Onde você gasta</p></div></div><div id="expense-sources" class="source-list"></div></section></div>
+          <p class="info-line">Uma origem vinculada a lançamentos não pode ser excluída. Edite os lançamentos primeiro para preservar seu histórico.</p>
+        </section>
+
+        <section class="view" id="view-settings" aria-labelledby="settings-heading" hidden>
+          <div class="page-heading page-heading-simple"><div><div class="eyebrow">SEGURANÇA E CONTROLE</div><h1 id="settings-heading">Dados, backup e nuvem</h1><p>Suas alterações são salvas primeiro neste dispositivo. Conecte uma conta para sincronizar.</p></div></div>
+          <section class="panel cloud-panel" aria-labelledby="cloud-heading">
+            <div class="cloud-heading"><div class="cloud-heading-icon" aria-hidden="true">☁</div><div><h2 id="cloud-heading">Sincronização entre dispositivos</h2><p>Use a mesma conta no computador e no Android. O uso local continua disponível sem conta.</p></div></div>
+            <p id="cloud-status" class="cloud-status" role="status" aria-live="polite">Verificando configuração…</p>
+            <div id="cloud-config-warning" class="notice warning" hidden>Supabase ainda não configurado. Preencha <code>src/cloud-config.js</code>, execute <code>supabase/schema.sql</code> e publique novamente. Nunca use chave secreta no navegador.</div>
+            <div id="cloud-auth-panel" class="cloud-auth-panel" hidden>
+              <div class="cloud-form-grid">
+                <label class="field"><span>E-mail</span><input id="cloud-email" type="email" autocomplete="username" maxlength="200" placeholder="voce@exemplo.com"></label>
+                <label class="field"><span>Senha</span><input id="cloud-password" type="password" autocomplete="current-password" minlength="6" placeholder="Sua senha"></label>
+              </div>
+              <div class="cloud-button-row"><button id="cloud-login" type="button" class="button button-primary">Entrar</button><button id="cloud-register" type="button" class="button button-secondary">Criar conta</button></div>
+              <p class="small-note">Se a confirmação de e-mail estiver ativa no Supabase, confirme a mensagem recebida antes do primeiro login.</p>
+            </div>
+            <div id="cloud-account-panel" hidden>
+              <p class="cloud-account-name">Conta: <strong id="cloud-user-name"></strong></p>
+              <div id="cloud-setup" class="cloud-choice" hidden>
+                <h3>Primeira conexão neste dispositivo</h3><p>Por segurança, não vamos substituir nem enviar nenhum lançamento automaticamente. Faça um backup JSON antes de escolher.</p>
+                <div class="cloud-button-row"><button type="button" class="button button-primary" id="cloud-pull">Usar dados da nuvem aqui</button><button type="button" class="button button-secondary" id="cloud-upload">Enviar dados deste aparelho</button></div>
+              </div>
+              <div id="cloud-sync-actions" class="cloud-button-row" hidden><button id="cloud-sync-now" type="button" class="button button-primary">Sincronizar agora</button></div>
+              <div id="cloud-conflict-actions" class="cloud-choice cloud-danger" hidden><h3>Conflito detectado</h3><p>Os mesmos registros foram editados em mais de um dispositivo. Exporte JSON primeiro. Escolha explicitamente qual conjunto de dados deve prevalecer; nenhum deles será descartado automaticamente.</p><div class="cloud-button-row"><button id="cloud-discard" type="button" class="button button-secondary">Usar versão da nuvem</button><button id="cloud-override" type="button" class="button button-danger">Enviar versão local</button></div></div>
+              <div class="cloud-button-row cloud-logout-row"><button type="button" id="cloud-logout" class="button button-secondary">Sair da conta</button></div>
+            </div>
+            <p class="small-note">Offline: tudo continua salvo no IndexedDB; o envio é retomado após reconexão. Ao sair, a cópia local não é apagada. O serviço remoto depende de conexão e das permissões da sua conta.</p>
+          </section>
+          <div class="settings-grid"><section class="panel settings-panel"><div class="settings-icon" aria-hidden="true">↓</div><h2>Exportar seus dados</h2><p>Baixe um JSON com todas as origens e lançamentos. Faça backups regularmente.</p><button id="export-data" type="button" class="button button-primary">Exportar JSON</button></section><section class="panel settings-panel"><div class="settings-icon" aria-hidden="true">↑</div><h2>Importar um backup</h2><p>Restaure um JSON exportado pelo Clara. A importação substitui integralmente os dados atuais após confirmação.</p><button id="import-data" type="button" class="button button-secondary">Selecionar arquivo JSON</button><input id="import-file" type="file" accept=".json,application/json" hidden></section></div>
+          <section class="panel storage-panel"><h2>Privacidade e armazenamento</h2><p>O Clara salva automaticamente no IndexedDB. Com o Supabase configurado e uma conta conectada, sincroniza com outros aparelhos. Sem conta, funciona somente localmente. Apagar dados do navegador pode apagar registros que ainda não foram sincronizados.</p><div class="storage-row"><span id="storage-status">Consultando armazenamento…</span><button id="request-persistence" type="button" class="button button-secondary button-small">Solicitar proteção contra limpeza automática</button></div><p class="small-note">A proteção depende das permissões do navegador e não substitui o backup JSON. O backup JSON continua recomendado mesmo quando a nuvem está ativa.</p></section>
+        </section>
+      </main>
+    </div>
+    <nav class="mobile-nav" aria-label="Navegação móvel"><button type="button" data-nav="dashboard" class="mobile-nav-item active"><span aria-hidden="true">◫</span> Início</button><button type="button" data-nav="transactions" class="mobile-nav-item"><span aria-hidden="true">⇄</span> Lançamentos</button><button type="button" data-nav="simulation" class="mobile-nav-item"><span aria-hidden="true">◇</span> Simular</button><button type="button" data-nav="sources" class="mobile-nav-item"><span aria-hidden="true">▦</span> Origens</button><button type="button" data-nav="settings" class="mobile-nav-item"><span aria-hidden="true">⚙</span> Backup</button></nav>
+  </div>
+
+  <div id="loading-screen" class="loading-screen" role="status">Preparando suas finanças…</div>
+
+  <dialog id="entry-dialog" class="modal"><form method="dialog" id="entry-form" novalidate><div class="modal-head"><div><div class="eyebrow">MOVIMENTAÇÃO FINANCEIRA</div><h2 id="entry-dialog-title">Novo lançamento</h2></div><button type="button" class="close-button" data-close="entry-dialog" aria-label="Fechar">×</button></div><div class="modal-body">
+    <div id="form-error" class="notice warning" hidden role="alert"></div>
+    <div class="form-grid">
+      <label class="field"><span>Tipo de lançamento</span><select id="entry-kind" required><option value="expense">Despesa</option><option value="income">Receita</option></select></label>
+      <label class="field"><span>Origem</span><select id="entry-source" required></select></label>
+      <label class="field field-full"><span>Descrição <em>(opcional)</em></span><input id="entry-description" type="text" maxlength="160" placeholder="Ex.: compra do mês"></label>
+      <label class="field"><span id="entry-date-label">Data</span><input id="entry-date" type="date" min="1900-01-01" max="2100-12-31" required></label>
+      <label class="field"><span id="entry-amount-label">Valor (R$)</span><input id="entry-amount" type="text" inputmode="decimal" placeholder="0,00" required></label>
+      <label class="field"><span id="entry-recurrence-label">Classificação</span><select id="entry-recurrence"><option value="none">Variável (pontual)</option><option value="fixed">Fixa (recorrente)</option></select></label>
+      <label class="field" id="entry-term-wrap"><span>Duração da recorrência</span><select id="entry-term"><option value="indefinite">Indeterminada</option><option value="limited">Por número de meses</option></select></label>
+      <label class="field" id="entry-months-wrap"><span>Quantidade de meses (inclui o primeiro)</span><input id="entry-months" type="number" min="2" max="240" step="1" value="12"></label>
+      <label class="field" id="entry-payment-wrap"><span>Meio de pagamento</span><select id="entry-payment"><option value="pix">Pix</option><option value="cash">Dinheiro</option><option value="credit">Cartão de crédito</option></select></label>
+      <label class="field" id="entry-installments-wrap"><span>Número de parcelas</span><input id="entry-installments" type="number" min="1" max="120" step="1" value="1"></label>
+      <label class="field" id="entry-value-mode-wrap"><span>Valor informado</span><select id="entry-value-mode"><option value="total">Valor total da compra</option><option value="each">Valor de cada parcela</option></select></label>
+    </div><div id="entry-preview" class="entry-preview" aria-live="polite"></div>
+    <p class="form-hint">A data informa o mês da primeira cobrança. Cartão de crédito não calcula automaticamente a data de fechamento da fatura.</p>
+    <p id="edit-hint" class="form-hint" hidden>Editar esta movimentação altera toda a recorrência ou série de parcelas, inclusive meses anteriores.</p>
+  </div><div class="modal-foot"><button type="button" class="button button-secondary" data-close="entry-dialog">Cancelar</button><button type="submit" id="save-entry" class="button button-primary">Salvar lançamento</button></div></form></dialog>
+
+  <dialog id="advance-dialog" class="modal modal-small"><form id="advance-form" novalidate><div class="modal-head"><div><div class="eyebrow">ANTECIPAÇÃO</div><h2>Adiantar cobrança</h2></div><button type="button" class="close-button" data-close="advance-dialog" aria-label="Fechar">×</button></div><div class="modal-body"><p id="advance-description" class="advance-description"></p><label class="field"><span>Novo mês da cobrança</span><input type="month" id="advance-to" min="1900-01" max="2100-12" required></label><div id="advance-preview" class="entry-preview" aria-live="polite"></div><div id="advance-error" class="notice warning" role="alert" hidden></div><p class="form-hint">Apenas esta cobrança será movida. Outras parcelas e meses da recorrência permanecem onde estão. Você poderá reverter o adiantamento depois.</p></div><div class="modal-foot"><button class="button button-secondary" type="button" data-close="advance-dialog">Cancelar</button><button type="submit" class="button button-primary">Adiantar cobrança</button></div></form></dialog>
+
+  <dialog id="source-dialog" class="modal modal-small"><form id="source-form" method="dialog" novalidate><div class="modal-head"><h2 id="source-dialog-title">Nova origem</h2><button type="button" class="close-button" data-close="source-dialog" aria-label="Fechar">×</button></div><div class="modal-body"><div id="source-error" class="notice warning" hidden role="alert"></div><label class="field"><span>Tipo de origem</span><select id="source-kind"><option value="expense">Despesa</option><option value="income">Receita</option></select></label><label class="field"><span>Nome da origem</span><input type="text" id="source-name" maxlength="60" placeholder="Ex.: Faculdade" required></label><p class="form-hint">Uma origem é usada para agrupar e filtrar seus lançamentos.</p></div><div class="modal-foot"><button type="button" class="button button-secondary" data-close="source-dialog">Cancelar</button><button type="submit" class="button button-primary">Salvar origem</button></div></form></dialog>
+
+  <dialog id="confirm-dialog" class="modal modal-small"><div class="modal-head"><h2 id="confirm-title">Confirmar ação</h2><button type="button" class="close-button" data-close="confirm-dialog" aria-label="Fechar">×</button></div><div class="modal-body"><p id="confirm-message"></p></div><div class="modal-foot"><button id="confirm-cancel" type="button" class="button button-secondary">Cancelar</button><button id="confirm-yes" type="button" class="button button-danger">Confirmar</button></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
